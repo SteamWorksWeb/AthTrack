@@ -1,9 +1,11 @@
 import { View, Text, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useEffect, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 
 export default function DashboardScreen() {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
@@ -47,6 +49,14 @@ export default function DashboardScreen() {
           No workouts logged yet. Get moving!
         </Text>
       </View>
+
+      {/* Find Athletes CTA */}
+      <TouchableOpacity
+        onPress={() => router.push('/(app)/search')}
+        className="bg-brand-500 rounded-xl py-3.5 items-center mb-3"
+      >
+        <Text className="text-white font-semibold text-base">🔍  Find Athletes</Text>
+      </TouchableOpacity>
 
       {/* Sign out */}
       <TouchableOpacity
