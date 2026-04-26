@@ -7,17 +7,19 @@ import { Session } from '@supabase/supabase-js';
 import Purchases from 'react-native-purchases';
 
 import { supabase } from '../lib/supabase';
-import { initRevenueCat } from '../lib/revenuecat';
+import { initRevenueCat, isRcMockMode } from '../lib/revenuecat';
 
 /**
  * AuthProvider
  *
  * Responsibilities:
- *  1. Initializes the RevenueCat SDK once on mount.
- *  2. Hydrates the Supabase session on cold start (handles persisted sessions).
+ *  1. Initializes the RevenueCat SDK once on mount (or enters mock mode on iOS
+ *     when no Apple Developer key is present — prevents simulator crashes).
+ *  2. Hydrates the Supabase session on cold start.
  *  3. Subscribes to ongoing auth state changes.
- *  4. Calls Purchases.logIn / Purchases.logOut to keep the RC customer
- *     identity in sync with the Supabase user UUID.
+ *  4. When NOT in mock mode: calls Purchases.logIn(userId) on sign-in and
+ *     Purchases.logOut() on sign-out to keep RC customer identity in sync
+ *     with the Supabase UUID.
  *  5. Redirects unauthenticated users → /(auth)/login
  *     and authenticated users away from auth screens → /(app).
  */
@@ -29,10 +31,10 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ─── SDK init + session hydration ────────────────────────────────────────────
   useEffect(() => {
-    // Initialize RevenueCat before any purchase calls
+    // Must run before any Purchases.* call
     initRevenueCat();
 
-    // Hydrate session on mount (handles app restart with persisted session)
+    // Hydrate persisted session from SecureStore on cold start
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsLoading(false);
@@ -44,22 +46,25 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
 
-      if (session?.user?.id) {
-        // User signed in — link RevenueCat customer to the Supabase UUID
-        try {
-          await Purchases.logIn(session.user.id);
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('[RevenueCat] logIn failed:', error);
+      // Only call real RC SDK methods when not in iOS mock mode
+      if (!isRcMockMode()) {
+        if (session?.user?.id) {
+          // Signed in — link RevenueCat customer to the Supabase UUID
+          try {
+            await Purchases.logIn(session.user.id);
+          } catch (error) {
+            if (__DEV__) {
+              console.warn('[RevenueCat] logIn failed:', error);
+            }
           }
-        }
-      } else {
-        // User signed out — reset RevenueCat to an anonymous customer
-        try {
-          await Purchases.logOut();
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('[RevenueCat] logOut failed:', error);
+        } else {
+          // Signed out — reset RC to an anonymous customer
+          try {
+            await Purchases.logOut();
+          } catch (error) {
+            if (__DEV__) {
+              console.warn('[RevenueCat] logOut failed:', error);
+            }
           }
         }
       }
@@ -75,10 +80,8 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!session && !inAuthGroup) {
-      // Not signed in — redirect to login
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
-      // Signed in but still on auth screens — redirect to app
       router.replace('/(app)');
     }
   }, [session, segments, isLoading]);
